@@ -23,7 +23,7 @@ try:
     # URL chuyển hướng khi deploy trên Streamlit Cloud (PHẢI CẬP NHẬT)
     # Nếu chạy local: "http://localhost:8501"
     # Khi deploy: "https://[your-app-name].[region].streamlit.app/"
-    REDIRECT_URI = "http://localhost:8501" # Cần thay đổi khi triển khai! 
+    REDIRECT_URI = "https://speechtotextcloud.streamlit.app/" # Cần thay đổi khi triển khai! 
 
     oauth = OAuth2(
         client_id=CLIENT_ID,
