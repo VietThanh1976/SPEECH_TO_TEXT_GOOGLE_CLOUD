@@ -1,4 +1,3 @@
 google-cloud-speech
 streamlit
-streamlit-oauth
 pandas
