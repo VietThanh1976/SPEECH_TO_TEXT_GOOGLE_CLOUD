@@ -1,48 +1,46 @@
 import streamlit as st
-import io # Thư viện cần thiết để làm việc với dữ liệu file trong bộ nhớ
+import io # Thư viện cần thiết để đọc dữ liệu file âm thanh
 from google.cloud import speech
 import os
 import json
 import tempfile
 import pandas as pd
-# Không cần import streamlit_oauth nữa
+# Không cần import streamlit-oauth
 
 # --- 1. Cấu Hình Trang và Tiêu Đề ---
 st.set_page_config(
-    page_title="Cloud STT App",
+    page_title="Ứng dụng Chuyển Âm thanh thành Văn bản",
     page_icon="🗣️",
     layout="wide"
 )
 
 # --- 2. Khởi Tạo Speech Client An Toàn ---
-# Sử dụng @st.cache_resource để chỉ khởi tạo client một lần
+# Sử dụng @st.cache_resource để chỉ khởi tạo client một lần duy nhất
 @st.cache_resource
 def create_speech_client_from_secrets():
     """Tạo SpeechClient bằng cách sử dụng nội dung JSON key từ Streamlit secrets."""
     
-    # Sử dụng st.secrets để truy cập biến bí mật
     try:
-        # Tên biến bí mật phải khớp với tên bạn đã nhập trên Streamlit Cloud
+        # Lấy JSON key của Google Cloud Service Account từ Streamlit secrets
         GCP_CREDENTIALS_JSON = st.secrets["gcp_credentials"]
     except KeyError:
-        # Nếu thiếu key, hiển thị lỗi và trả về None
-        st.error("Lỗi: Thiếu 'gcp_credentials' trong Streamlit Secrets. Vui lòng kiểm tra lại cấu hình.")
+        st.error("Lỗi: Thiếu 'gcp_credentials' trong Streamlit Secrets. Ứng dụng không thể gọi API GCP.")
         return None
         
     try:
         credentials_dict = json.loads(GCP_CREDENTIALS_JSON)
         
-        # Google Cloud Client Libraries thường yêu cầu đường dẫn file để xác thực.
-        # Ta tạo một file tạm thời để chứa JSON Key.
+        # Tạo file tạm thời (Google Cloud Client Libraries yêu cầu đường dẫn file)
         temp_file_path = ""
+        # Tạo file tạm với đuôi .json để đảm bảo tính tương thích
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_key_file:
             json.dump(credentials_dict, temp_key_file)
             temp_file_path = temp_key_file.name
         
-        # Khởi tạo SpeechClient bằng cách trỏ đến file tạm thời
+        # Khởi tạo SpeechClient
         client = speech.SpeechClient.from_service_account_json(temp_file_path)
         
-        # Cố gắng xóa file tạm ngay lập tức
+        # Cố gắng xóa file tạm ngay sau khi client được tạo
         try:
             os.remove(temp_file_path)
         except Exception:
@@ -76,21 +74,18 @@ def transcribe_audio(uploaded_file, client):
             content = audio_source.read()
             audio = speech.RecognitionAudio(content=content)
         
-        # Cấu hình cho ngôn ngữ (ví dụ: Tiếng Việt)
+        # Cấu hình cho ngôn ngữ (Ví dụ: Tiếng Việt)
         config = speech.RecognitionConfig(
-            # Encoding nên được xác định chính xác theo file nguồn (WAV thường là LINEAR16)
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16, 
-            sample_rate_hertz=16000, # Tần số mẫu
-            language_code="vi-VN", # Mã ngôn ngữ
+            sample_rate_hertz=16000, 
+            language_code="vi-VN", 
         )
 
         with st.spinner("Đang gửi file và xử lý chuyển đổi..."):
-            # Lệnh gọi API chính
             response = client.recognize(config=config, audio=audio)
 
         transcribed_text = ""
         for result in response.results:
-            # Lấy kết quả thay thế đầu tiên (tốt nhất)
             transcribed_text += result.alternatives[0].transcript + " "
         
         return transcribed_text.strip()
@@ -104,18 +99,20 @@ def transcribe_audio(uploaded_file, client):
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
 
-# --- 4. Hàm Giả Định Lấy Thông Tin Phí (Chỉ để hiển thị giao diện) ---
+# --- 4. Hàm Giả Định Lấy Thông Tin Phí ---
 def get_user_usage_info(user_email):
+    """Hàm giả định hiển thị thông tin sử dụng và phí."""
     total_free_minutes = 60
     cost_per_minute = 0.024
     
-    # Dữ liệu giả định
+    # Dữ liệu giả định để mô phỏng trạng thái sử dụng của người dùng
     usage_records = {
-        "user@gmail.com": 5.0,
-        "test.user@gmail.com": 75.0,
+        "admin@example.com": 5.0,
+        "guest@example.com": 75.0,
     }
     
-    minutes_used = usage_records.get(user_email, 0.0)
+    # Lấy thông tin sử dụng, mặc định là 0 phút
+    minutes_used = usage_records.get(user_email, 0.0) 
     minutes_remaining = max(0, total_free_minutes - minutes_used)
     
     estimated_cost = 0.0
@@ -139,10 +136,9 @@ def get_user_usage_info(user_email):
 st.title("🗣️ Ứng Dụng Chuyển Âm Thanh thành Văn Bản (STT) - GCP")
 st.markdown("---")
 
-# 5.1. Khởi tạo và Đăng nhập bằng Native OAuth
+# 5.1. Khởi tạo Native OAuth Connection
 try:
-    # Lấy đối tượng kết nối OAuth đã cấu hình trong secrets.toml
-    # Tên "google_oauth" phải khớp với tên trong file secrets.toml
+    # Kết nối phải được đặt tên là "google_oauth" trong secrets.toml
     conn = st.connection("google_oauth", type="oauth")
 except Exception:
     st.error("Lỗi: Không tìm thấy cấu hình OAuth 'google_oauth' trong secrets.toml. Vui lòng kiểm tra lại cấu trúc [connections.google_oauth].")
@@ -152,20 +148,20 @@ except Exception:
 # Xử lý luồng đăng nhập
 if "user_info" not in st.session_state:
     
-    # Hàm authorize() xử lý toàn bộ quá trình chuyển hướng và nhận code
+    # Hàm authorize() sẽ hiển thị nút đăng nhập và xử lý chuyển hướng
     conn.authorize()
     
     try:
-        # Lấy thông tin người dùng (chỉ được gọi sau khi ủy quyền thành công)
+        # Lấy thông tin người dùng sau khi xác thực thành công
         user_info = conn.get_user_info()
         st.session_state["user_info"] = user_info
-        st.session_state["user_email"] = user_info.get("email", "Không rõ Email")
+        st.session_state["user_email"] = user_info.get("email", "Email không xác định")
         st.rerun() # Refresh để tải lại trang với session đã được xác thực
         
-    except Exception as e:
+    except Exception:
         # Nếu chưa đăng nhập hoặc có lỗi, hiển thị thông báo
         st.info("Vui lòng Đăng nhập bằng Gmail để sử dụng ứng dụng.")
-        st.stop()
+        st.stop() 
 
 
 # 5.2. Giao Diện Ứng Dụng Chính Sau Khi Đăng Nhập
@@ -179,15 +175,17 @@ usage_data = get_user_usage_info(user_email)
     
 st.sidebar.metric(label="Phút Miễn Phí Đã Dùng", value=usage_data['used'], delta=f"Còn lại: {usage_data['remaining']}")
 st.sidebar.markdown(f"**Trạng thái Phí:** {usage_data['status']}")
+st.sidebar.markdown(f"*(Dựa trên giới hạn miễn phí 60 phút/tháng)*")
     
 st.sidebar.markdown("---")
     
 if st.sidebar.button("Đăng Xuất"):
-    # Xóa thông tin session và thực hiện log_out của native OAuth
+    # Xóa thông tin session
     if "user_info" in st.session_state:
         del st.session_state["user_info"]
     if "user_email" in st.session_state:
         del st.session_state["user_email"]
+    # Thực hiện log_out của Native OAuth
     conn.log_out() 
     st.rerun()
     
