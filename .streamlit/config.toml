@@ -1,0 +1,4 @@
+# .streamlit/config.toml
+[theme]
+# Tùy chỉnh theme Streamlit (Không bắt buộc)
+base="light"

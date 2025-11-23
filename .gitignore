@@ -1,0 +1,10 @@
+# Bỏ qua thư mục ảo Python
+venv/
+.venv/
+
+# Bỏ qua các tệp cache
+__pycache__/
+.pytest_cache/
+
+# Bỏ qua tệp chứa biến bí mật của Streamlit
+.streamlit/secrets.toml
