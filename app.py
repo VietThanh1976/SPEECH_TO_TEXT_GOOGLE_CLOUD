@@ -1,5 +1,5 @@
 import streamlit as st
-import io # Thư viện cần thiết để đọc dữ liệu file âm thanh
+import io
 from google.cloud import speech
 import os
 import json
@@ -13,44 +13,60 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 2. Khởi Tạo Speech Client An Toàn ---
-# Sử dụng @st.cache_resource để chỉ khởi tạo client một lần duy nhất
+# --- 2. Khởi Tạo Speech Client AN TOÀN (Đã sửa lỗi scope biến) ---
 @st.cache_resource
 def create_speech_client_from_secrets():
     """Tạo SpeechClient bằng cách sử dụng nội dung JSON key từ Streamlit secrets."""
     
+    # 1. Khởi tạo biến an toàn TRƯỚC khối try
+    temp_file_path = None
+    
     try:
-        # Lấy JSON key của Google Cloud Service Account từ Streamlit secrets
+        # Lấy JSON key của Google Cloud Service Account
         GCP_CREDENTIALS_JSON = st.secrets["gcp_credentials"]
     except KeyError:
         st.error("Lỗi: Thiếu 'gcp_credentials' trong Streamlit Secrets. Ứng dụng không thể gọi API GCP.")
         return None
         
     try:
-        st.info("nội dung json:\n", credentials_dict)
+        # 2. Xử lý chuỗi JSON và tạo file tạm
+        
+        # Thử tải và phân tích chuỗi JSON
         credentials_dict = json.loads(GCP_CREDENTIALS_JSON)
         
+        # <<< ĐIỂM GỠ LỖI: Hiển thị biến credentials_dict >>>
+        st.sidebar.subheader("DEBUG: JSON Key Data")
+        st.sidebar.json(credentials_dict)
+        # <<< KẾT THÚC ĐIỂM GỠ LỖI >>>
+        
         # Tạo file tạm thời (Google Cloud Client Libraries yêu cầu đường dẫn file)
-        temp_file_path = ""
-        # Tạo file tạm với đuôi .json để đảm bảo tính tương thích
+        temp_dir = tempfile.gettempdir()
+        
+        # Gán giá trị temp_file_path ngay sau khi tạo
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_key_file:
             json.dump(credentials_dict, temp_key_file)
-            temp_file_path = temp_key_file.name
+            temp_file_path = temp_key_file.name # Đảm bảo biến được gán
         
-        # Khởi tạo SpeechClient
+        # 3. Khởi tạo SpeechClient
         client = speech.SpeechClient.from_service_account_json(temp_file_path)
         
-        # Cố gắng xóa file tạm ngay sau khi client được tạo
-        try:
-            os.remove(temp_file_path)
-        except Exception:
-            pass
-            
         return client
 
     except Exception as e:
+        # Báo lỗi nếu việc phân tích JSON hoặc khởi tạo client thất bại
         st.error(f"Lỗi khi khởi tạo Google Cloud Speech Client (Kiểm tra JSON Key): {e}")
         return None
+        
+    finally:
+        # 4. Dọn dẹp an toàn (luôn chạy, dù có lỗi hay không)
+        # Chỉ xóa file nếu nó đã được tạo thành công
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception as cleanup_e:
+                # Log lỗi dọn dẹp nhưng không làm dừng ứng dụng
+                print(f"Lỗi dọn dẹp file tạm: {cleanup_e}")
+
 
 # Khởi tạo client 
 speech_client = create_speech_client_from_secrets()
