@@ -27,7 +27,7 @@ def create_speech_client_from_secrets():
         return None
         
     try:
-        print("nội dung json:\n", credentials_dict)
+        st.info("nội dung json:\n", credentials_dict)
         credentials_dict = json.loads(GCP_CREDENTIALS_JSON)
         
         # Tạo file tạm thời (Google Cloud Client Libraries yêu cầu đường dẫn file)
