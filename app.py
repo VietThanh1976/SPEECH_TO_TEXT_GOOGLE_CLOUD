@@ -6,6 +6,7 @@ import json
 import tempfile
 import pandas as pd
 
+# UPDATE 1
 # --- 1. Cấu Hình Trang và Tiêu Đề ---
 st.set_page_config(
     page_title="Ứng dụng Chuyển Âm thanh thành Văn bản",
