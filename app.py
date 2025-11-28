@@ -14,67 +14,67 @@ st.set_page_config(
 )
 
 # --- 2. Khởi Tạo Speech Client AN TOÀN ---
-# Sử dụng @st.cache_resource để chỉ khởi tạo client một lần
 @st.cache_resource
 def create_speech_client_from_secrets():
     """Tạo SpeechClient bằng cách sử dụng nội dung JSON key từ Streamlit secrets."""
     
-    # Khởi tạo biến file tạm an toàn
     temp_file_path = None
     GCP_CREDENTIALS_JSON = None 
     
     try:
-        # Lấy JSON key của Google Cloud Service Account. Đây là bước kiểm tra lỗi KeyError ban đầu
+        # Lấy JSON key của Google Cloud Service Account.
         GCP_CREDENTIALS_JSON = st.secrets["gcp_credentials"]
     except KeyError:
-        # Báo lỗi nếu thiếu biến gcp_credentials
-        st.error("Lỗi: Thiếu 'gcp_credentials' trong Streamlit Secrets. Vui lòng kiểm tra lại PHẦN 2 cấu hình (KHÔNG CÓ DẤU [] cho gcp_credentials).")
+        st.error("Lỗi: Thiếu 'gcp_credentials' trong Streamlit Secrets. Vui lòng kiểm tra lại PHẦN 2 cấu hình.")
         return None
         
     try:
-        # 2. Xử lý chuỗi JSON và tạo file tạm
+        # --- TẠM THỜI GỠ LỖI: PHÂN TÍCH CHUỖI BỊ LỖI ---
+        st.sidebar.subheader("⚠️ DEBUG: Phân tích Cú pháp JSON")
         
+        # Sử dụng repr() để hiển thị chuỗi với các ký tự điều khiển được thoát (như \n, \t)
+        display_string = repr(GCP_CREDENTIALS_JSON)
+        st.sidebar.text_area("Chuỗi JSON Gốc (repr):", display_string, height=150)
+
+        # Kiểm tra sự tồn tại của raw newline (nếu có, đó là lỗi TOML)
+        if '\n' in GCP_CREDENTIALS_JSON:
+             st.sidebar.warning("CẢNH BÁO NGUY HIỂM: Chuỗi vẫn chứa ký tự XUỐNG DÒNG THỰC TẾ (\\n). Vui lòng chuyển sang Giải pháp 2.")
+             
+        # --- KẾT THÚC GỠ LỖI ---
+
         # Thử tải và phân tích chuỗi JSON
         credentials_dict = json.loads(GCP_CREDENTIALS_JSON)
         
-        # --- TẠM THỜI GỠ LỖI: KIỂM TRA ĐỘ CHÍNH XÁC CỦA BIẾN ---
-        # Khối này giúp bạn biết liệu biến có được đọc và phân tích JSON đúng không.
-        st.sidebar.subheader("⚠️ DEBUG: Trạng thái Key (Xóa sau khi hoạt động)")
+        # Phần còn lại của kiểm tra key và khởi tạo client...
         st.sidebar.write(f"Độ dài chuỗi JSON: **{len(GCP_CREDENTIALS_JSON)}** ký tự.")
         st.sidebar.write(f"Các khóa JSON tìm thấy: **{', '.join(credentials_dict.keys())}**")
         
         required_keys = ["type", "project_id", "private_key"]
         if not all(k in credentials_dict for k in required_keys):
-            st.sidebar.error("Lỗi cấu trúc: Thiếu khóa bắt buộc (type, project_id, hoặc private_key). Vui lòng kiểm tra lại nội dung JSON.")
+            st.sidebar.error("Lỗi cấu trúc: Thiếu khóa bắt buộc (type, project_id, hoặc private_key).")
             return None
-        # --- KẾT THÚC GỠ LỖI ---
         
-        # Tạo file tạm thời vì Google Cloud Client Libraries yêu cầu đường dẫn file
+        # 3. Tạo file tạm thời và khởi tạo SpeechClient
         temp_dir = tempfile.gettempdir()
-        
-        # Ghi nội dung JSON vào file tạm
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_key_file:
             json.dump(credentials_dict, temp_key_file)
-            temp_file_path = temp_key_file.name # Lấy đường dẫn file tạm
+            temp_file_path = temp_key_file.name
         
-        # 3. Khởi tạo SpeechClient
         client = speech.SpeechClient.from_service_account_json(temp_file_path)
-        
         st.sidebar.success("✅ Kết nối GCP Speech API thành công!")
         return client
 
     except json.JSONDecodeError as e:
         # Báo lỗi nếu việc phân tích JSON thất bại
-        st.sidebar.error(f"❌ Lỗi Cú pháp JSON: Key GCP Key không hợp lệ. Vui lòng kiểm tra dấu phẩy hoặc ký tự thừa: {e}")
+        st.sidebar.error(f"❌ Lỗi Cú pháp JSON: Key GCP Key không hợp lệ. Lỗi chi tiết: {e}")
         return None
         
     except Exception as e:
-        # Báo lỗi nếu khởi tạo client thất bại (Lỗi 'No key could be detected' sẽ nằm ở đây)
+        # Báo lỗi nếu khởi tạo client thất bại
         st.sidebar.error(f"❌ Lỗi GCP Key: {e}")
         return None
         
     finally:
-        # 4. Dọn dẹp an toàn (luôn chạy)
         if temp_file_path and os.path.exists(temp_file_path):
             try:
                 os.remove(temp_file_path)
@@ -84,6 +84,7 @@ def create_speech_client_from_secrets():
 
 # Khởi tạo client 
 speech_client = create_speech_client_from_secrets()
+# ... [Phần còn lại của code transcribe và UI không thay đổi]
 
 # --- 3. Hàm Chuyển Đổi Âm Thanh thành Văn Bản ---
 def transcribe_audio(uploaded_file, client):
@@ -113,7 +114,6 @@ def transcribe_audio(uploaded_file, client):
         )
 
         with st.spinner("Đang gửi file và xử lý chuyển đổi..."):
-            # Gọi API chuyển đổi
             response = client.recognize(config=config, audio=audio)
 
         transcribed_text = ""
