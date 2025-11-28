@@ -5,8 +5,7 @@ import os
 import json
 import tempfile
 import pandas as pd
-
-# UPDATE 1
+# UPDATE 2
 # --- 1. Cấu Hình Trang và Tiêu Đề ---
 st.set_page_config(
     page_title="Ứng dụng Chuyển Âm thanh thành Văn bản",
@@ -14,68 +13,62 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 2. Khởi Tạo Speech Client AN TOÀN ---
+# --- 2. Khởi Tạo Speech Client AN TOÀN (Sử dụng Giải pháp 3: Separated Secrets) ---
 @st.cache_resource
 def create_speech_client_from_secrets():
-    """Tạo SpeechClient bằng cách sử dụng nội dung JSON key từ Streamlit secrets."""
+    """Tạo SpeechClient bằng cách đọc từng phần tử key từ Streamlit secrets và xây dựng lại JSON."""
     
     temp_file_path = None
-    GCP_CREDENTIALS_JSON = None 
     
+    # --- 1. Tạo Payload JSON từ các biến độc lập ---
     try:
-        # Lấy JSON key của Google Cloud Service Account.
-        GCP_CREDENTIALS_JSON = st.secrets["gcp_credentials"]
-    except KeyError:
-        st.error("Lỗi: Thiếu 'gcp_credentials' trong Streamlit Secrets. Vui lòng kiểm tra lại PHẦN 2 cấu hình.")
-        return None
+        # Lấy tất cả các thành phần từ Secrets (loại bỏ lỗi cú pháp JSON)
+        credentials_dict = {
+            "type": st.secrets["GCP_TYPE"],
+            "project_id": st.secrets["GCP_PROJECT_ID"],
+            "private_key_id": st.secrets["GCP_PRIVATE_KEY_ID"],
+            "private_key": st.secrets["GCP_PRIVATE_KEY"], # Đây là biến chứa \n (backslash n)
+            "client_email": st.secrets["GCP_CLIENT_EMAIL"],
+            "client_id": st.secrets["GCP_CLIENT_ID"],
+            "auth_uri": st.secrets["GCP_AUTH_URI"],
+            "token_uri": st.secrets["GCP_TOKEN_URI"],
+            "auth_provider_x509_cert_url": st.secrets["GCP_AUTH_PROVIDER_X509_CERT_URL"],
+            "client_x509_cert_url": st.secrets["GCP_CLIENT_X509_CERT_URL"],
+            "universe_domain": st.secrets["GCP_UNIVERSE_DOMAIN"]
+        }
         
-    try:
-        # --- TẠM THỜI GỠ LỖI: PHÂN TÍCH CHUỖI BỊ LỖI ---
-        st.sidebar.subheader("⚠️ DEBUG: Phân tích Cú pháp JSON")
-        
-        # Sử dụng repr() để hiển thị chuỗi với các ký tự điều khiển được thoát (như \n, \t)
-        display_string = repr(GCP_CREDENTIALS_JSON)
-        st.sidebar.text_area("Chuỗi JSON Gốc (repr):", display_string, height=150)
-
-        # Kiểm tra sự tồn tại của raw newline (nếu có, đó là lỗi TOML)
-        if '\n' in GCP_CREDENTIALS_JSON:
-             st.sidebar.warning("CẢNH BÁO NGUY HIỂM: Chuỗi vẫn chứa ký tự XUỐNG DÒNG THỰC TẾ (\\n). Vui lòng chuyển sang Giải pháp 2.")
+        # Kiểm tra đơn giản sau khi đọc
+        if not credentials_dict["private_key"] or not credentials_dict["client_email"]:
+             st.error("Lỗi: Thiếu khóa Private Key hoặc Client Email trong cấu hình GCP.")
+             return None
              
-        # --- KẾT THÚC GỠ LỖI ---
+    except KeyError as e:
+        st.error(f"Lỗi: Thiếu biến secrets bắt buộc '{e.args[0]}'. Vui lòng kiểm tra lại cấu hình GCP mới.")
+        return None
 
-        # Thử tải và phân tích chuỗi JSON
-        credentials_dict = json.loads(GCP_CREDENTIALS_JSON)
-        
-        # Phần còn lại của kiểm tra key và khởi tạo client...
-        st.sidebar.write(f"Độ dài chuỗi JSON: **{len(GCP_CREDENTIALS_JSON)}** ký tự.")
-        st.sidebar.write(f"Các khóa JSON tìm thấy: **{', '.join(credentials_dict.keys())}**")
-        
-        required_keys = ["type", "project_id", "private_key"]
-        if not all(k in credentials_dict for k in required_keys):
-            st.sidebar.error("Lỗi cấu trúc: Thiếu khóa bắt buộc (type, project_id, hoặc private_key).")
-            return None
-        
-        # 3. Tạo file tạm thời và khởi tạo SpeechClient
+    # --- 2. Ghi nội dung JSON vào file tạm ---
+    try:
+        # Vì credentials_dict đã là một dict hợp lệ, bước json.dump này là an toàn tuyệt đối.
         temp_dir = tempfile.gettempdir()
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_key_file:
             json.dump(credentials_dict, temp_key_file)
-            temp_file_path = temp_key_file.name
+            temp_file_path = temp_key_file.name # Lấy đường dẫn file tạm
         
+        # --- 3. Khởi tạo SpeechClient ---
         client = speech.SpeechClient.from_service_account_json(temp_file_path)
-        st.sidebar.success("✅ Kết nối GCP Speech API thành công!")
+        
+        st.sidebar.subheader("⚠️ DEBUG: Trạng thái Key")
+        st.sidebar.success("✅ Kết nối GCP Speech API (Sử dụng Separated Secrets) thành công!")
         return client
 
-    except json.JSONDecodeError as e:
-        # Báo lỗi nếu việc phân tích JSON thất bại
-        st.sidebar.error(f"❌ Lỗi Cú pháp JSON: Key GCP Key không hợp lệ. Lỗi chi tiết: {e}")
-        return None
-        
     except Exception as e:
-        # Báo lỗi nếu khởi tạo client thất bại
+        # Lỗi duy nhất có thể xảy ra ở đây là Private Key không chứa các ký tự xuống dòng (\n)
         st.sidebar.error(f"❌ Lỗi GCP Key: {e}")
+        st.sidebar.markdown("**Gợi ý:** Lỗi này thường do khóa `GCP_PRIVATE_KEY` không chứa các ký tự xuống dòng (`\\n`) đã được thoát.")
         return None
         
     finally:
+        # 4. Dọn dẹp an toàn
         if temp_file_path and os.path.exists(temp_file_path):
             try:
                 os.remove(temp_file_path)
@@ -85,7 +78,6 @@ def create_speech_client_from_secrets():
 
 # Khởi tạo client 
 speech_client = create_speech_client_from_secrets()
-# ... [Phần còn lại của code transcribe và UI không thay đổi]
 
 # --- 3. Hàm Chuyển Đổi Âm Thanh thành Văn Bản ---
 def transcribe_audio(uploaded_file, client):
@@ -115,6 +107,7 @@ def transcribe_audio(uploaded_file, client):
         )
 
         with st.spinner("Đang gửi file và xử lý chuyển đổi..."):
+            # Gọi API chuyển đổi
             response = client.recognize(config=config, audio=audio)
 
         transcribed_text = ""
