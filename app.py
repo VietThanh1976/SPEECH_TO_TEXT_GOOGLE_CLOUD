@@ -14,19 +14,21 @@ st.set_page_config(
 )
 
 # --- 2. Khởi Tạo Speech Client AN TOÀN ---
+# Sử dụng @st.cache_resource để chỉ khởi tạo client một lần
 @st.cache_resource
 def create_speech_client_from_secrets():
     """Tạo SpeechClient bằng cách sử dụng nội dung JSON key từ Streamlit secrets."""
     
     # Khởi tạo biến file tạm an toàn
     temp_file_path = None
+    GCP_CREDENTIALS_JSON = None 
     
     try:
-        # Lấy JSON key của Google Cloud Service Account
+        # Lấy JSON key của Google Cloud Service Account. Đây là bước kiểm tra lỗi KeyError ban đầu
         GCP_CREDENTIALS_JSON = st.secrets["gcp_credentials"]
     except KeyError:
         # Báo lỗi nếu thiếu biến gcp_credentials
-        st.error("Lỗi: Thiếu 'gcp_credentials' trong Streamlit Secrets. Vui lòng kiểm tra lại PHẦN 2 cấu hình.")
+        st.error("Lỗi: Thiếu 'gcp_credentials' trong Streamlit Secrets. Vui lòng kiểm tra lại PHẦN 2 cấu hình (KHÔNG CÓ DẤU [] cho gcp_credentials).")
         return None
         
     try:
@@ -35,7 +37,19 @@ def create_speech_client_from_secrets():
         # Thử tải và phân tích chuỗi JSON
         credentials_dict = json.loads(GCP_CREDENTIALS_JSON)
         
-        # Tạo file tạm thời (Google Cloud Client Libraries yêu cầu đường dẫn file)
+        # --- TẠM THỜI GỠ LỖI: KIỂM TRA ĐỘ CHÍNH XÁC CỦA BIẾN ---
+        # Khối này giúp bạn biết liệu biến có được đọc và phân tích JSON đúng không.
+        st.sidebar.subheader("⚠️ DEBUG: Trạng thái Key (Xóa sau khi hoạt động)")
+        st.sidebar.write(f"Độ dài chuỗi JSON: **{len(GCP_CREDENTIALS_JSON)}** ký tự.")
+        st.sidebar.write(f"Các khóa JSON tìm thấy: **{', '.join(credentials_dict.keys())}**")
+        
+        required_keys = ["type", "project_id", "private_key"]
+        if not all(k in credentials_dict for k in required_keys):
+            st.sidebar.error("Lỗi cấu trúc: Thiếu khóa bắt buộc (type, project_id, hoặc private_key). Vui lòng kiểm tra lại nội dung JSON.")
+            return None
+        # --- KẾT THÚC GỠ LỖI ---
+        
+        # Tạo file tạm thời vì Google Cloud Client Libraries yêu cầu đường dẫn file
         temp_dir = tempfile.gettempdir()
         
         # Ghi nội dung JSON vào file tạm
@@ -49,18 +63,22 @@ def create_speech_client_from_secrets():
         st.sidebar.success("✅ Kết nối GCP Speech API thành công!")
         return client
 
+    except json.JSONDecodeError as e:
+        # Báo lỗi nếu việc phân tích JSON thất bại
+        st.sidebar.error(f"❌ Lỗi Cú pháp JSON: Key GCP Key không hợp lệ. Vui lòng kiểm tra dấu phẩy hoặc ký tự thừa: {e}")
+        return None
+        
     except Exception as e:
-        # Báo lỗi nếu việc phân tích JSON hoặc khởi tạo client thất bại
+        # Báo lỗi nếu khởi tạo client thất bại (Lỗi 'No key could be detected' sẽ nằm ở đây)
         st.sidebar.error(f"❌ Lỗi GCP Key: {e}")
         return None
         
     finally:
-        # 4. Dọn dẹp an toàn
+        # 4. Dọn dẹp an toàn (luôn chạy)
         if temp_file_path and os.path.exists(temp_file_path):
             try:
                 os.remove(temp_file_path)
             except Exception as cleanup_e:
-                # Log lỗi dọn dẹp
                 print(f"Lỗi dọn dẹp file tạm: {cleanup_e}")
 
 
@@ -95,6 +113,7 @@ def transcribe_audio(uploaded_file, client):
         )
 
         with st.spinner("Đang gửi file và xử lý chuyển đổi..."):
+            # Gọi API chuyển đổi
             response = client.recognize(config=config, audio=audio)
 
         transcribed_text = ""
@@ -151,7 +170,6 @@ try:
     # Kết nối phải được đặt tên là "google_oauth" trong secrets.toml
     conn = st.connection("google_oauth", type="oauth")
 except Exception:
-    # Lỗi xảy ra nếu [connections.google_oauth] không được cấu hình trong Secrets
     st.error("Lỗi: Không tìm thấy cấu hình OAuth 'google_oauth'. Vui lòng kiểm tra lại PHẦN 1 cấu hình trong Streamlit Secrets.")
     st.stop()
     
@@ -162,12 +180,14 @@ if "user_info" not in st.session_state:
     conn.authorize()
     
     try:
+        # Lấy thông tin người dùng sau khi xác thực thành công
         user_info = conn.get_user_info()
         st.session_state["user_info"] = user_info
         st.session_state["user_email"] = user_info.get("email", "Email không xác định")
         st.rerun() 
         
     except Exception:
+        # Nếu chưa đăng nhập hoặc có lỗi, hiển thị thông báo
         st.info("Vui lòng Đăng nhập bằng Gmail để sử dụng ứng dụng.")
         st.stop() 
 
